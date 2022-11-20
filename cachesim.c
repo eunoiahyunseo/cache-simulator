@@ -36,7 +36,6 @@ FILE *tracefile_fp;
  *  3. tag
  *  4. data
  * }
- *
  */
 typedef struct cache_line_
 {
@@ -46,7 +45,6 @@ typedef struct cache_line_
     // data have to dynamic -> change with block size
     // block size 8B -> 2word -> sizeof(int) = 4byte = a word
     one_word *data;
-    int lru_seq;
 } cache_line;
 
 // cache_line* [] -> that's a cache
@@ -77,6 +75,21 @@ main_memory_line *main_memory;
 
 void write_cache(int addr, one_word data);
 void read_cache(int addr);
+
+// LRU linked-list
+typedef struct lru_struct_
+{
+    int lru_data;
+    struct lru_struct_ *prev;
+    struct lru_struct_ *next;
+} lru_struct, *lru_struct_ptr;
+
+lru_struct **associative_head_lru;
+lru_struct **associative_tail_lru;
+
+void init_lru(int set_num);
+void update_lru(int cache_index, int data);
+void add_lru(int cache_index, int data);
 
 int main(int ac, char *av[])
 {
@@ -130,13 +143,16 @@ int main(int ac, char *av[])
         main_memory[i].check_sum = 0;
     }
 
+    // put set_num
+    init_lru(set_num);
+
     // for W/R trace file -> read sample.trc file
     /**
      * @brief read tracefile accurate format
      * 00010008 W 33
      * 0001000C W 4
      * 00010000 R
-     * -> 8(hex) R|W W?data
+     * -> 8(hex)   R|W   W?data
      */
 
     // addr is 32bit -> 4byte -> int is 4byte
@@ -161,6 +177,43 @@ int main(int ac, char *av[])
     return 0;
 }
 
+void init_lru(int set_num)
+{
+    int cache_index;
+    lru_struct_ptr temp;
+    associative_head_lru = (lru_struct_ptr *)calloc(set_num, sizeof(lru_struct_ptr));
+    associative_tail_lru = (lru_struct_ptr *)calloc(set_num, sizeof(lru_struct_ptr));
+    for (cache_index = 0; cache_index < set_num; cache_index++)
+    {
+        associative_head_lru[cache_index] = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
+        associative_tail_lru[cache_index] = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
+
+        associative_head_lru[cache_index]->lru_data = 0;
+        associative_tail_lru[cache_index]->lru_data = 0;
+
+        associative_head_lru[cache_index]->next = associative_tail_lru[i];
+        associative_tail_lru[cache_index]->prev = associative_head_lru[i];
+    }
+}
+
+void update_lru(int cache_index, int data)
+{
+    // find data
+}
+
+void add_lru(int cache_index, int data);
+{
+    lru_struct_ptr temp;
+    temp = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
+
+    temp->lru_data = data;
+    temp->next = associative_head_lru[cache_index]->next;
+    associative_head_lru[cache_index]->next->prev = temp;
+
+    temp->prev = associative_head_lru[cache_index];
+    associative_head_lru[cache_index]->next = temp;
+}
+
 void write_cache(int addr, one_word data)
 {
     int index, associative_offset, entry_set_offset;
@@ -177,7 +230,9 @@ void write_cache(int addr, one_word data)
         if (cache_line_ptr->valid == 1 && cache_line_ptr->tag == ((addr / block_size) / set_num))
         {
             // hit -> (update or write) data to cache
-            // 1. dirty bit to 1
+            // update lru
+            update_lru(index, cache_line_ptr->data[((addr / ONE_BYTE_SIZE) % word_num)], temp_write_data);
+
             cache_line_ptr->dirty = 1;
             cache_line_ptr->data[((addr / ONE_BYTE_SIZE) % word_num)] = temp_write_data;
             return;
