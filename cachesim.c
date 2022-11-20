@@ -103,6 +103,8 @@ void read_MM(int addr, cache_line *cache_line_ptr);
 void writeProcess(int addr, int data, cache_line *cache_line_ptr);
 void readProcess(int addr, cache_line *cache_line_ptr);
 
+void print_cache();
+
 int main(int ac, char *av[])
 {
     int parameter_return;
@@ -306,11 +308,14 @@ void write_cache(int addr, one_word data)
         }
 
         writeProcess(addr, temp_write_data, cache_line_ptr);
+        print_cache();
     }
     else
     {
+        printf("addr : %08X, data : %d \n", addr, temp_write_data);
         cache_line_ptr = cache + (index * associative_size + entry_set_offset);
         writeProcess(addr, temp_write_data, cache_line_ptr);
+        print_cache();
     }
 }
 
@@ -329,9 +334,10 @@ void read_cache(int addr)
         if (cache_line_ptr->valid == 1 && cache_line_ptr->tag == ((addr / block_size) / set_num))
         {
             // hit -> update the lru value ( LRU evict policy )
+            printf("[%08X] hit \n", addr);
             cache_line_ptr->lru_val = extern_lru_value;
             return;
-        } // CASE 2: miss
+        }
         else if (cache_line_ptr->valid == 0 && entry_set_offset > associative_offset)
         {
             entry_set_offset = associative_offset;
@@ -339,6 +345,8 @@ void read_cache(int addr)
     }
 
     // CASE 2: miss
+    printf("[%08X] miss \n", addr);
+
     // same with write cache -> evict
     if (entry_set_offset == associative_size)
     {
@@ -422,18 +430,16 @@ void read_MM(int addr, cache_line *cache_line_ptr)
 
 void writeProcess(int addr, int data, cache_line *cache_line_ptr)
 {
-    if (block_size == ONE_WORD_SIZE)
-    {
-        // finally write data to cache
-        cache_line_ptr->dirty = 1;
-        cache_line_ptr->valid = 1;
-        cache_line_ptr->tag = ((addr / block_size) / set_num);
-        (cache_line_ptr->data)[((addr / ONE_BYTE_SIZE) % word_num)] = data;
-        cache_line_ptr->addr = addr;
-        cache_line_ptr->lru_val = extern_lru_value;
-    }
-    else
+    if (block_size != ONE_WORD_SIZE)
         read_MM(addr, cache_line_ptr);
+
+    // finally write data to cache
+    cache_line_ptr->dirty = 1;
+    cache_line_ptr->valid = 1;
+    cache_line_ptr->tag = ((addr / block_size) / set_num);
+    (cache_line_ptr->data)[((addr / ONE_BYTE_SIZE) % word_num)] = data;
+    cache_line_ptr->addr = addr;
+    cache_line_ptr->lru_val = extern_lru_value;
 }
 
 void readProcess(int addr, cache_line *cache_line_ptr)
@@ -444,4 +450,19 @@ void readProcess(int addr, cache_line *cache_line_ptr)
     cache_line_ptr->tag = ((addr / block_size) / set_num);
     cache_line_ptr->lru_val = extern_lru_value;
     read_MM(addr, cache_line_ptr);
+}
+
+void print_cache()
+{
+    printf("------------------------------------------------- \n");
+    int cache_entry, cache_index;
+    cache_line *cache_line_ptr;
+    for (cache_entry = 0; cache_entry < set_num; cache_entry++)
+    {
+        for (cache_index = 0; cache_index < associative_size; cache_index++)
+        {
+            cache_line_ptr = cache + (cache_entry * associative_size + cache_index);
+            printf("cache[%d][%d] : valid = %d, dirty = %d, addr = %08X, lru_val = %d, data = ( %08X %08X )  \n", cache_entry, cache_index, cache_line_ptr->valid, cache_line_ptr->dirty, cache_line_ptr->addr, cache_line_ptr->lru_val, cache_line_ptr->data[0], cache_line_ptr->data[1]);
+        }
+    }
 }
