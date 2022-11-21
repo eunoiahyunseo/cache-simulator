@@ -1,10 +1,9 @@
 /**
  * @file cachesim.c
- * @author hyunseo (heart20021010@gmail.com)
- * @brief cache simulator for computer assignment 2022
+ * @author hyunseo lee (heart20021010@gmail.com)
+ * @brief cache simulator for computer architecture assignment 2022
  * @version 0.1
  * @date 2022-11-18
- * @copyright writer: hyunseo lee
  */
 
 #include <stdio.h>
@@ -17,6 +16,9 @@
 #define ONE_WORD_SIZE 4
 #define ONE_BYTE_SIZE 4
 
+#define MISS_PENALTY_CYCLE 200
+#define HIT_CYCLE 1
+
 typedef int one_word;
 
 // parameter info
@@ -28,6 +30,13 @@ FILE *tracefile_fp;
 int set_num, word_num;
 
 int extern_lru_value;
+
+// statistics values
+int total_hit;
+int total_miss;
+int total_dirty;
+
+int memory_access_count;
 
 /**
  * @struct cache_line_ -> cache_line
@@ -75,27 +84,12 @@ typedef struct main_memory_line_
     one_word *data;
 } main_memory_line;
 
-// main_memory_line* [] -> that's a main memory;
+// main_memory_line* [] -> that's a main memory
 // !MAIN MEMORY
 main_memory_line *main_memory;
 
 void write_cache(int addr, one_word data);
 void read_cache(int addr);
-
-// LRU linked-list
-// typedef struct lru_struct_
-// {
-//     int lru_data;
-//     struct lru_struct_ *prev;
-//     struct lru_struct_ *next;
-// } lru_struct, *lru_struct_ptr;
-
-// lru_struct **associative_head_lru;
-// lru_struct **associative_tail_lru;
-
-// void init_lru(int set_num);
-// void update_lru(int cache_index, int data);
-// void add_lru(int cache_index, int data);
 
 void save_MM(cache_line *cache_line_ptr);
 void read_MM(int addr, cache_line *cache_line_ptr);
@@ -104,6 +98,7 @@ void writeProcess(int addr, int data, cache_line *cache_line_ptr);
 void readProcess(int addr, cache_line *cache_line_ptr);
 
 void print_cache();
+void print_mm();
 
 int main(int ac, char *av[])
 {
@@ -143,13 +138,16 @@ int main(int ac, char *av[])
     word_num = (block_size / ONE_BYTE_SIZE);
     extern_lru_value = 0;
 
-    set_num = cache_size / (block_size * associative_size);
     // initialize with 0 -> we have to use calloc
     cache = (cache_line *)calloc(set_num * associative_size, sizeof(cache_line));
     for (i = 0; i < set_num * associative_size; i++)
         cache[i].data = (one_word *)calloc(block_size / ONE_WORD_SIZE, sizeof(one_word));
 
     // initialize size 512 with main_memory_line struct
+    /**
+     * @brief
+     * 32bit address
+     */
     main_memory = (main_memory_line *)calloc(INITIAL_BUFFER_SIZE, sizeof(main_memory_line));
     for (i = 0; i < INITIAL_BUFFER_SIZE; i++)
     {
@@ -157,9 +155,6 @@ int main(int ac, char *av[])
         // for memory is valid
         main_memory[i].check_sum = 0;
     }
-
-    // put set_num
-    // init_lru(set_num);
 
     // for W/R trace file -> read sample.trc file
     /**
@@ -182,89 +177,56 @@ int main(int ac, char *av[])
         if (memory_access_type == 'W')
         {
             fscanf(tracefile_fp, "%d", &temp_write_data);
-            printf("%08X %c %d \n", addr, memory_access_type, temp_write_data);
+            // printf("%08X %c %d \n", addr, memory_access_type, temp_write_data);
 
             // we have to write data to cache
             write_cache(addr, temp_write_data);
         }
         else if (memory_access_type == 'R')
         {
-            printf("%08X %c \n", addr, memory_access_type);
+            // printf("%08X %c \n", addr, memory_access_type);
             read_cache(addr);
         }
         else
             exit(1);
     }
+
+    print_cache();
     return 0;
 }
 
-// void init_lru(int set_num)
-// {
-//     int cache_index;
-//     lru_struct_ptr temp;
-//     associative_head_lru = (lru_struct_ptr *)calloc(set_num, sizeof(lru_struct_ptr));
-//     associative_tail_lru = (lru_struct_ptr *)calloc(set_num, sizeof(lru_struct_ptr));
-//     for (cache_index = 0; cache_index < set_num; cache_index++)
-//     {
-//         associative_head_lru[cache_index] = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
-//         associative_tail_lru[cache_index] = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
-
-//         associative_head_lru[cache_index]->lru_data = 0;
-//         associative_tail_lru[cache_index]->lru_data = 0;
-
-//         associative_head_lru[cache_index]->next = associative_tail_lru[i];
-//         associative_tail_lru[cache_index]->prev = associative_head_lru[i];
-//     }
-// }
-
-// void update_lru(int cache_index, int data)
-// {
-//     // find data
-// }
-
-// void add_lru(int cache_index, int data)
-// {
-//     lru_struct_ptr temp;
-//     temp = (lru_struct_ptr)calloc(1, sizeof(lru_struct));
-
-//     temp->lru_data = data;
-//     temp->next = associative_head_lru[cache_index]->next;
-//     associative_head_lru[cache_index]->next->prev = temp;
-
-//     temp->prev = associative_head_lru[cache_index];
-//     associative_head_lru[cache_index]->next = temp;
-// }
-
 void write_cache(int addr, one_word data)
 {
-    int index, associative_offset, entry_set_offset, temp_write_data;
+    int index, associative_offset, entry_set_offset, temp_write_data, tag, data_offset, cache_line_offset;
     cache_line *cache_line_ptr;
 
+    // (00000000 00000001 00000000 00)=tag (001)=index (000)=byte offset W 33
     index = (addr / block_size) % set_num;
+    cache_line_offset = index * associative_size;
+    tag = ((addr / block_size) / set_num);
+    data_offset = ((addr / ONE_BYTE_SIZE) % word_num);
+
+    // init entry_set_offset to associative_size -> for find evict cache entry
     entry_set_offset = associative_size;
     temp_write_data = data;
 
     for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
     {
-        cache_line_ptr = cache + (index * associative_size + associative_offset);
+        cache_line_ptr = cache + (cache_line_offset + associative_offset);
 
-        // CASE1: hit
-        if (cache_line_ptr->valid == 1 && cache_line_ptr->tag == ((addr / block_size) / set_num))
+        // CASE1: valid == 1 && tag is same -> hit
+        if (cache_line_ptr->valid == 1 && cache_line_ptr->tag == tag)
         {
-            // hit -> (update or write) data to cache
-            printf("[%08X] hit \n", addr);
-            // update lru
-            // update_lru(index, cache_line_ptr->data[((addr / ONE_BYTE_SIZE) % word_num)], temp_write_data);
-
+            total_hit++;
+            // cache data is W ( changed ) -> when this cache line is evict we have to save this data to MM
             cache_line_ptr->dirty = 1;
-            cache_line_ptr->data[((addr / ONE_BYTE_SIZE) % word_num)] = temp_write_data;
+            cache_line_ptr->data[data_offset] = temp_write_data;
             cache_line_ptr->addr = addr;
             cache_line_ptr->lru_val = extern_lru_value;
             return;
-
-            // valid bit is 0 so we have to write data to cache
-            // first find cache entry set to add data
         }
+        // valid bit is 0 so we have to write data to cache
+        // first find cache entry set to add data
         else if (cache_line_ptr->valid == 0 && entry_set_offset > associative_offset)
         {
             // while associative_offset is in loop while 0 ~ associative_size
@@ -278,63 +240,63 @@ void write_cache(int addr, one_word data)
         }
     }
 
-    // CASE2: miss
-    printf("[%08X] miss \n", addr);
-    // CASE2-1: miss and cache entry is full
-    // -> we can't find entry to put temp_write_data
+    total_miss++;
+
+    // CASE2-1: miss and cache entry is full -> have to evict
     if (entry_set_offset == associative_size)
     {
         int max_sizeof_int = INT_MAX;
         // we have to go loop and search the oldest entry(cache->lru_val is smallest) in the target cache index
         for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
         {
-            cache_line_ptr = cache + (index * associative_size + associative_offset);
+            cache_line_ptr = cache + (cache_line_offset + associative_offset);
             if (cache_line_ptr->lru_val < max_sizeof_int)
             {
                 max_sizeof_int = cache_line_ptr->lru_val;
+                // set entry_set_offset to lru_val is minimum
                 entry_set_offset = associative_offset;
             }
         }
-        cache_line_ptr = cache + (index * associative_size + entry_set_offset);
+
+        cache_line_ptr = cache + (cache_line_offset + entry_set_offset);
 
         // and if dirty bit is 1 -> save to the main memory
-        // dirty bit is 0 -> continue
         if (cache_line_ptr->dirty == 1)
         {
             // evict
             // !we cannot do that because we have to know address of evict entry
             // save_MM(addr, cache_line_ptr);
+
             save_MM(cache_line_ptr);
         }
-
         writeProcess(addr, temp_write_data, cache_line_ptr);
-        print_cache();
     }
     else
     {
-        printf("addr : %08X, data : %d \n", addr, temp_write_data);
         cache_line_ptr = cache + (index * associative_size + entry_set_offset);
         writeProcess(addr, temp_write_data, cache_line_ptr);
-        print_cache();
     }
 }
 
 void read_cache(int addr)
 {
-    int index, associative_offset, entry_set_offset;
+    int index, associative_offset, entry_set_offset, cache_line_offset;
     cache_line *cache_line_ptr;
 
     index = (addr / block_size) % set_num;
+    cache_line_offset = index * associative_size;
+    entry_set_offset = associative_size;
+
 
     for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
     {
-        cache_line_ptr = cache + (index * associative_size + associative_offset);
+        cache_line_ptr = cache + (cache_line_offset + associative_offset);
 
-        // CASE 1: hit
+        // CASE 1: hit ( total_hit++ )
         if (cache_line_ptr->valid == 1 && cache_line_ptr->tag == ((addr / block_size) / set_num))
         {
             // hit -> update the lru value ( LRU evict policy )
-            printf("[%08X] hit \n", addr);
+            total_hit++;
             cache_line_ptr->lru_val = extern_lru_value;
             return;
         }
@@ -344,9 +306,9 @@ void read_cache(int addr)
         }
     }
 
-    // CASE 2: miss
-    printf("[%08X] miss \n", addr);
+    total_miss++;
 
+    // CASE 2: miss
     // same with write cache -> evict
     if (entry_set_offset == associative_size)
     {
@@ -354,14 +316,15 @@ void read_cache(int addr)
         // we have to go loop and search the oldest entry(cache->lru_val is smallest) in the target cache index
         for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
         {
-            cache_line_ptr = cache + (index * associative_size + associative_offset);
+            cache_line_ptr = cache + (cache_line_offset + associative_offset);
             if (cache_line_ptr->lru_val < max_sizeof_int)
             {
                 max_sizeof_int = cache_line_ptr->lru_val;
                 entry_set_offset = associative_offset;
             }
         }
-        cache_line_ptr = cache + (index * associative_size + entry_set_offset);
+
+        cache_line_ptr = cache + (cache_line_offset + entry_set_offset);
 
         // and if dirty bit is 1 -> save to the main memory
         // dirty bit is 0 -> continue
@@ -372,7 +335,6 @@ void read_cache(int addr)
             // save_MM(addr, cache_line_ptr);
             save_MM(cache_line_ptr);
         }
-
         readProcess(addr, cache_line_ptr);
     }
     else
@@ -391,22 +353,32 @@ void save_MM(cache_line *cache_line_ptr)
     int memory_line, evict_addr;
     evict_addr = (cache_line_ptr->addr / block_size);
 
+    memory_access_count++;
+
+    // loop MM ( 512 )
     for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
     {
-        // CASE1: if checksum is ok -> only copy data to mainmemory[memory_line]
+        // CASE1: if checksum is ok -> only copy data to main_memory[memory_line]
         if (main_memory[memory_line].check_sum == 1 && main_memory[memory_line].addr == evict_addr)
         {
+            // if there is evict_addr in main_memory
+            // -> copy cache data to main_memory
             memcpy(main_memory[memory_line].data, cache_line_ptr->data, sizeof(one_word) * word_num);
             return;
-            // CASE2: if checksum is not ok -> set check_sum to 1 and put some data
         }
+        // continue
         else if (main_memory[memory_line].check_sum == 1 && main_memory[memory_line].addr != evict_addr)
             continue;
+        // CASE2: if checksum is not ok -> set check_sum to 1 and put some data
         else if (main_memory[memory_line].check_sum == 0)
         {
+            // checksum -> 1
             main_memory[memory_line].check_sum = 1;
             main_memory[memory_line].addr = evict_addr;
+
+            // cache data -> MM
             memcpy(main_memory[memory_line].data, cache_line_ptr->data, sizeof(one_word) * word_num);
+            
             return;
         }
     }
@@ -417,8 +389,12 @@ void read_MM(int addr, cache_line *cache_line_ptr)
     int memory_line, target_addr;
     target_addr = addr / block_size;
 
+    
+    memory_access_count++;
+
     for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
     {
+        
         if (main_memory[memory_line].check_sum == 1 && main_memory[memory_line].addr == target_addr)
         {
             // cache_line_ptr->data is int* type
@@ -426,20 +402,30 @@ void read_MM(int addr, cache_line *cache_line_ptr)
             return;
         }
     }
+
+    memset(cache_line_ptr->data, 0, sizeof(one_word) * word_num);
 }
 
 void writeProcess(int addr, int data, cache_line *cache_line_ptr)
 {
+    int tag, data_offset;
+
+    tag = ((addr / block_size) / set_num);
+    data_offset = ((addr / ONE_BYTE_SIZE) % word_num);
+
+    // if block_size is one_word -> we don't have to read MM
+    // -> (cache_line_ptr->data)[data_offset] = data; could do that
     if (block_size != ONE_WORD_SIZE)
         read_MM(addr, cache_line_ptr);
 
     // finally write data to cache
     cache_line_ptr->dirty = 1;
     cache_line_ptr->valid = 1;
-    cache_line_ptr->tag = ((addr / block_size) / set_num);
-    (cache_line_ptr->data)[((addr / ONE_BYTE_SIZE) % word_num)] = data;
     cache_line_ptr->addr = addr;
+    cache_line_ptr->tag = tag;
     cache_line_ptr->lru_val = extern_lru_value;
+    // set data
+    (cache_line_ptr->data)[data_offset] = data;
 }
 
 void readProcess(int addr, cache_line *cache_line_ptr)
@@ -449,20 +435,65 @@ void readProcess(int addr, cache_line *cache_line_ptr)
     cache_line_ptr->addr = (addr / block_size);
     cache_line_ptr->tag = ((addr / block_size) / set_num);
     cache_line_ptr->lru_val = extern_lru_value;
+
+    // set data
     read_MM(addr, cache_line_ptr);
 }
 
 void print_cache()
 {
-    printf("------------------------------------------------- \n");
-    int cache_entry, cache_index;
+    int cache_entry_index, associative_offset, cache_line_offset, data_index;
+
+    double miss_rate, average_memory_access_cycle;
+
     cache_line *cache_line_ptr;
-    for (cache_entry = 0; cache_entry < set_num; cache_entry++)
+
+    for (cache_entry_index = 0; cache_entry_index < set_num; cache_entry_index++)
     {
-        for (cache_index = 0; cache_index < associative_size; cache_index++)
+        printf("%d: ", cache_entry_index);
+        cache_line_offset = cache_entry_index * associative_size;
+
+        for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
         {
-            cache_line_ptr = cache + (cache_entry * associative_size + cache_index);
-            printf("cache[%d][%d] : valid = %d, dirty = %d, addr = %08X, lru_val = %d, data = ( %08X %08X )  \n", cache_entry, cache_index, cache_line_ptr->valid, cache_line_ptr->dirty, cache_line_ptr->addr, cache_line_ptr->lru_val, cache_line_ptr->data[0], cache_line_ptr->data[1]);
+            (associative_offset != 0) ? printf("  ") : printf("");
+            (((cache_line_ptr = cache + (cache_line_offset + associative_offset))->dirty) && total_dirty++);
+
+            for (data_index = 0; data_index < word_num; data_index++)
+                printf("%08X ", (cache_line_ptr->data)[data_index]);
+
+            printf("v: %d d: %d\n", cache_line_ptr->valid, cache_line_ptr->dirty);
+
+            // printf(" tag: (%016X) \n", cache_line_ptr->tag);
         }
+    }
+
+    miss_rate = (double)((double)total_miss / (total_hit + total_miss)) * 100;
+    average_memory_access_cycle = (double)(memory_access_count * MISS_PENALTY_CYCLE + (total_hit + total_miss) * HIT_CYCLE) / (total_hit + total_miss);
+
+    printf("\ntotal number of hits: %d\n", total_hit);
+    printf("total number of misses: %d\n", total_miss);
+    printf("miss rate: %.1f%%\n", miss_rate);
+    printf("total number of dirty blocks: %d\n", total_dirty);
+    printf("average memory access cycle: %.1f\n", average_memory_access_cycle);
+
+    // print_mm();
+}
+
+void print_mm()
+{
+    int memory_line, data_index;
+
+    for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
+    {
+
+        printf("addr: %08X ", main_memory[memory_line].addr);            
+
+        for (data_index = 0; data_index < word_num; data_index++)
+            printf("data: %08X ", (main_memory[memory_line].data[data_index]));
+            
+        printf("\n");
+        if (main_memory[memory_line].check_sum == 1)
+            break;
+
     }
 }
