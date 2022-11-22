@@ -1,4 +1,5 @@
 # cache-simulator
+
 Computer Architecture - Final Cache-Simulator Assignment
 
-김찬호 이현서 캐시 시뮬레이터 제대로 만들자
+![screensh](https://camo.githubusercontent.com/08b40541bb7affad34943fab21e7c1e32fa88c99930c775b7db2dbb9e92d0047/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f4c6963656e63652d4d49542d626c75652e737667)

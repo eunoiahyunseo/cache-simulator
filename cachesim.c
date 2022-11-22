@@ -470,6 +470,7 @@ void print_cache()
     miss_rate = (double)((double)total_miss / (total_hit + total_miss)) * 100;
     average_memory_access_cycle = (double)(memory_access_count * MISS_PENALTY_CYCLE + (total_hit + total_miss) * HIT_CYCLE) / (total_hit + total_miss);
 
+    printf("mac >> %d\n", memory_access_count);
     printf("\ntotal number of hits: %d\n", total_hit);
     printf("total number of misses: %d\n", total_miss);
     printf("miss rate: %.1f%%\n", miss_rate);
