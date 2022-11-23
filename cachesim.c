@@ -352,7 +352,7 @@ void save_MM(cache_line *cache_line_ptr)
     int memory_line, evict_addr;
     evict_addr = (cache_line_ptr->addr / block_size);
 
-    printf("save_MM >> (%08X) \n", cache_line_ptr->addr);
+    // printf("save_MM >> (%08X) \n", cache_line_ptr->addr);
     memory_access_count++;
 
     // loop MM ( 512 )
@@ -389,7 +389,7 @@ void read_MM(int addr, cache_line *cache_line_ptr)
     int memory_line, target_addr;
     target_addr = addr / block_size;
 
-    printf("read_MM >> (%08X) \n", addr);
+    // printf("read_MM >> (%08X) \n", addr);
     memory_access_count++;
 
     for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
