@@ -287,7 +287,6 @@ void read_cache(int addr)
     cache_line_offset = index * associative_size;
     entry_set_offset = associative_size;
 
-
     for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
     {
         cache_line_ptr = cache + (cache_line_offset + associative_offset);
@@ -353,6 +352,7 @@ void save_MM(cache_line *cache_line_ptr)
     int memory_line, evict_addr;
     evict_addr = (cache_line_ptr->addr / block_size);
 
+    printf("save_MM >> (%08X) \n", cache_line_ptr->addr);
     memory_access_count++;
 
     // loop MM ( 512 )
@@ -378,7 +378,7 @@ void save_MM(cache_line *cache_line_ptr)
 
             // cache data -> MM
             memcpy(main_memory[memory_line].data, cache_line_ptr->data, sizeof(one_word) * word_num);
-            
+
             return;
         }
     }
@@ -389,12 +389,12 @@ void read_MM(int addr, cache_line *cache_line_ptr)
     int memory_line, target_addr;
     target_addr = addr / block_size;
 
-    
+    printf("read_MM >> (%08X) \n", addr);
     memory_access_count++;
 
     for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
     {
-        
+
         if (main_memory[memory_line].check_sum == 1 && main_memory[memory_line].addr == target_addr)
         {
             // cache_line_ptr->data is int* type
@@ -455,8 +455,11 @@ void print_cache()
 
         for (associative_offset = 0; associative_offset < associative_size; associative_offset++)
         {
-            (associative_offset != 0) ? printf("  ") : printf("");
-            (((cache_line_ptr = cache + (cache_line_offset + associative_offset))->dirty) && total_dirty++);
+            if (associative_offset != 0)
+                printf("  ");
+
+            if ((cache_line_ptr = cache + (cache_line_offset + associative_offset))->dirty)
+                total_dirty++;
 
             for (data_index = 0; data_index < word_num; data_index++)
                 printf("%08X ", (cache_line_ptr->data)[data_index]);
@@ -470,7 +473,7 @@ void print_cache()
     miss_rate = (double)((double)total_miss / (total_hit + total_miss)) * 100;
     average_memory_access_cycle = (double)(memory_access_count * MISS_PENALTY_CYCLE + (total_hit + total_miss) * HIT_CYCLE) / (total_hit + total_miss);
 
-    printf("mac >> %d\n", memory_access_count);
+    // printf("mac >> %d\n", memory_access_count);
     printf("\ntotal number of hits: %d\n", total_hit);
     printf("total number of misses: %d\n", total_miss);
     printf("miss rate: %.1f%%\n", miss_rate);
@@ -487,14 +490,13 @@ void print_mm()
     for (memory_line = 0; memory_line < INITIAL_BUFFER_SIZE; memory_line++)
     {
 
-        printf("addr: %08X ", main_memory[memory_line].addr);            
+        printf("addr: %08X ", main_memory[memory_line].addr);
 
         for (data_index = 0; data_index < word_num; data_index++)
             printf("data: %08X ", (main_memory[memory_line].data[data_index]));
-            
+
         printf("\n");
         if (main_memory[memory_line].check_sum == 1)
             break;
-
     }
 }
